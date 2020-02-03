@@ -1,0 +1,156 @@
+---
+title: '20650298'
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+#install.packages("plyr")
+#install.packages("corrplot")
+#install.packages("Hmisc")
+#install.packages("ggcorrplot")
+library(plyr)
+library(corrplot)
+library(ggcorrplot)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Student ID: 20650298
+Name: Monica Iyer
+Kaggle public prediction score: 0.72
+
+
+##Summary
+
+This report will highlight the steps I took to build the housing pricing model. There are 25 different variates provided with the market price of houses. Intuitively we are aware that House prices generally depend on the size of the houses (capacity and area) and many otehr features. They key things that I will be looking out for are special impacts of variates that dont intuitively have an effect on the model and eliminating Interactions Effects so as to find the best fit for the model. 
+
+I first reviewed the house_train.csv and house_test.csv to have a look at the data and the types of variables that could have an influence on the pricing model. 
+I found that we have both continuous random variables and categorical variables. Since the data had no null values, it did not require any sort of imputation. 
+
+##Pre-processing the data:
+
+
+Install the mathematical packages that were required to view plots and understand the correlation between the explanatory variates. Import both the house training and testing data as houses and houses_test respectively. 
+```{r cars}
+#imports
+
+houses <- read.csv('house_train.csv')
+houses_test <- read.csv('house_test.csv')
+
+summary(houses)
+```
+
+
+Since the training data has presumably no missing data, we now have to use pair plots to really understand how each of the explanatory variates affect the response variable. This will show us the correlation (negative or positive) between the variates and the response - PRICE. 
+
+Using the list of variates from the question, we categorize the variates into categorical and continuous random variables. 
+
+In the code, we primarily use boxplots to understand the correlation 
+between PRICE and the categorical variates. We use pair plot for continuous variables. Our purpose of using boxplots allows us to understand the range of values that PRICE can take given the limited possible variables for the categorical variables. It also helps to see
+patterns, if any more clearly. 
+
+##Which observations affect the response variable
+```{r}
+boxplot(PRICE~BATHRM, data = houses,main="BATHRM", cex=0.25)
+boxplot(PRICE~HF_BATHRM,data=houses,main="HF_BATHRM",cex=0.25)
+boxplot(PRICE~HEAT, data=houses, main="HEAT",cex=0.25)
+pairs(~PRICE+HEAT, data=houses, main="HEAT PAIRS", cex=0.25)
+boxplot(PRICE~AC, data=houses, main="AC",cex=0.25)
+boxplot(PRICE~ROOMS, data=houses, main="ROOMS",cex=0.25)
+
+plot(~AYB+PRICE, data=houses, main="AYB", cex=0.25)
+plot(~EYB+PRICE, data=houses, main="EYB", cex=0.25)
+boxplot(PRICE~STORIES, data=houses, main="STORIES", cex=0.25)
+boxplot(PRICE~STYLE, data=houses, main="STYLE", cex=0.25)
+plot(~SALEDATE+PRICE,data=houses, main="SALEDATE", cex=0.25)
+plot(~GBA+PRICE, data=houses, main="GBA", cex=0.25)
+
+#check correlation of the factors that appear intuitively correlated when #thinking about the variates that affect pricing in the real-world
+#The reason we go about checking this is to get rid of interaction 
+#if any among the variates. This will be more important when 
+#building the model.
+plot(~STORIES+STYLE, data=houses, main="STORIES x STYLE", cex=0.25)
+plot(~GRADE+CNDTN, data=houses, main="GRADE x CNTDN", cex=0.25)
+plot(~BEDRM+BATHRM+ROOMS+HF_BATHRM, main="BEDRM CORR", data=houses, cex=0.25)
+plot(~INTWALL+EXTWALL, data=houses, main="INTWALL x EXTWALL", cex=0.25)
+
+boxplot(PRICE~STYLE, data=houses, main="STYLE", cex=0.25)
+boxplot(PRICE~GRADE, data=houses, main=" GRADE", cex=0.25)
+boxplot(PRICE~ROOF, data=houses, main="ROOF", cex=0.25)
+boxplot(PRICE~EXTWALL,data=houses, main="EXTWALL", cex=0.25)
+boxplot(PRICE~INTWALL,data=houses, main="CNTDN", cex=0.25)
+boxplot(PRICE~KITCHENS, data=houses, main="KITCHENS", cex=0.25)
+boxplot(PRICE~FIREPLACES, data=houses, main="FIREPLACES", cex=0.25)
+
+plot(~PRICE + LANDAREA,data=houses, main="LANDAREA", cex=0.25)
+plot(~PRICE + ZIPCODE, data=houses,main="ZIPCODE",  cex=0.25)
+plot(~PRICE + LATITUDE, data=houses, main="LATITUDE", cex=0.25)
+plot(~PRICE + LONGITUDE, data=houses, main="LONGITUDE", cex=0.25)
+boxplot(PRICE~ASSESSMENT_NBHD, data=houses, main="NBHD", cex=0.25)
+boxplot (PRICE~WARD, data=houses, main="WARD", cex=0.25 )
+
+```
+#Observations
+
+There are a number of different observations seen from the boxplots and pairplots. They are listed below:
+
+The variates that have a significant "effect" on the response by analyzing the pair plots are as follows: BATHRM, HF_BATHRM, HEAT, AC, ROOMS, EYB, STORIES, GBA, KITCHENS, FIREPLACES, LANDAREA, LONGITUDE. BATHRM and BEDRM are highly correlated and BEDRM and ROOMS and too (intuitively too). There is a highly positive correlation between BATHRMS and PRICE. Surprisingly GRADE does has a strange relation with PRICE and not linear as expected (increase in GRADE leads to an increase in PRICE).
+
+The variates that have been left out from the Observations do not seem to have a strong pattern of relation with the PRICE of a house (whether positive or negative). There are definitely certain features within a variate that have more of an impact on the price of a house (say Ward 2 in the pair plot of PRICE vs WARD) and this can be seen across the different variates.
+
+
+#Correlation Analysis
+
+Here I have explored the correlation between the features and the target PRICE by plotting a correlation matrix. This allows me to see variates that are highly correlates to each other.
+
+```{r}
+#correlation between variables test 
+library(corrplot)
+palette <- colorRampPalette(c("green", "white", "red"))(20)
+library(ggcorrplot)
+
+#change the categorical strings to numericals
+data_houses <- houses[, c(1:9, 11:24, 26)]#remove saledate and nbhd
+data_houses[,3]<-as.numeric(factor(data_houses[,3]))#Heat
+data_houses[,4]<-as.numeric(factor(data_houses[,4]))#AC
+data_houses[,12]<-as.numeric(factor(data_houses[, 12]))#style
+data_houses[,13]<-as.numeric(factor(data_houses[,13]))#style
+data_houses[,14]<-as.numeric(factor(data_houses[,14]))#grade
+data_houses[,15]<-as.numeric(factor(data_houses[,15]))#cndtn
+data_houses[,16]<-as.numeric(factor(data_houses[,16]))#extwall
+data_houses[,17]<-as.numeric(factor(data_houses[,17]))#roof
+data_houses[,18]<-as.numeric(factor(data_houses[,18]))#intwall
+data_houses[,24]<-as.numeric(factor(data_houses[,24]))#ward
+data_houses[,25]<-as.numeric(factor(houses[, 25]))
+houses_corr <-  round(cor(data_houses), 1)
+houses_corr
+corrplot(houses_corr, type="full", method="square", order="hclust", tl.col="black", tl.srt=90, tl.cex=0.50)
+```
+
+From the correlation matrix above, I could tell that the following variables are highly correlated to PRICE: LONGITUDE, WARD, LANDAREA, GRADE, STORIES, BATHRM, FIREPLACES, GBA, ROOMS, BEDRM, EYB and CNDTN. 
+
+Using the information from the Correlation Matrix and the Pair plots, I chose the variables using backward selection that would affect the Pricing model. 
+
+```{r}
+#model selection - \backward selection
+LinearModel <- function(houses, houses_test)
+{
+  ntot <- dim(data_houses)
+  M0 <- lm(PRICE~1, data = houses)
+
+  M1 <- lm(PRICE~GRADE+STORIES+HF_BATHRM+LANDAREA+GBA+FIREPLACES+   ROOMS+BATHRM+BEDRM+EYB+CNDTN, data = houses)
+  pred <- predict(M1, newdata = houses_test)
+  res <- data.frame(Id=houses_test$Id, PRICE=pred)
+  return(res)
+}
+
+```
+#Note
+During the process of trying to build the best model, I used VIF and looked at the p-value for the variates. Variates with p-value greater than 0.4 and above were not used (except for ROOMS). In the future, I will accomodate Interactions effects to counter the effect it has on the response variate. 
+
+#Conclusion
+
+I decided that towards the end of building this model, with more fine-tuning of accounting for Interaction effects and better understanding of Variance Inflation Factor (VIF) and multicollinearity the model would have done better with the test set. My public prediction score on Kaggle is 0.72. 
+
+
