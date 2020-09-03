@@ -1,0 +1,164 @@
+---
+title: "Smoothing Model"
+author: "Jane Doe"
+output:
+  html_document:
+    df_print: paged
+  pdf_document:
+    keep_tex: yes
+  word_document: default
+---
+
+* UW ID: 20634521
+* Kaggle public score: 0.24
+* Kaggle private score: 0.21
+
+## Summary
+
+This report will highlight the steps I took to make my Housing Pricing model. My model building process has significantly improved since I built my linear model and took in feedback from the Professor. This time around I used the General Additive Models function (gam) from MGCV package. I also used MICE imputation, Stepwise forward model building process, VIF to explore the significance for different covariates.
+
+I  have divided the 'house_train' data into into its categorical and continuous variables and converted each into their respective numeric forms. The training data has been divided (80-20) into a training set and a testing set (numeric_train_split and numeric_test_split). Both of them had missing values and I have decided to use the MICE package to impute the data (both imputations were performed seperately to make sure that the test data is always separate from the training data). The same steps listed for my training data were performed on the test data ('house_test' or imp_prof_data). For the imputation process, I have chosen to use the MICE package and the method 'cart'. The reason I chose Cart is because it uses Classification and Regression trees to successfully impute the data. 
+
+My model building process primarily started from this point on which I have detailed below. I tried 22 different fits and chose the fit based on my rmlse and AIC values. 
+
+## Preprocessing
+
+#Libraries
+
+```{r}
+library(locfit)
+library(mice)
+library(imputeTS)
+library(Metrics)
+library(mgcv)
+library(corrplot)
+```
+
+### 1.1 Loading data
+```{r,echo=TRUE}
+raw_train_data <- read.csv('house_train.csv')
+raw_prof_data <- read.csv('house_test.csv')
+```
+
+### Missing Data
+The following missing data has been replaced with the MICE imputation package with the method 'cart'
+YR_RMDL, AYB, STORIES, ASSESSMENT_SUBNBHD, QUADRANT
+
+### Transformation
+* PRICE: I took a log transformation of the PRICE
+* SALEDATE: Used substr(SALEDATE, 1,4) to transform the data. 
+* Converted all categorical variables to factors: as.factor(variable_name)
+* Note : I had initially tried to standardize certain covariates like 
+
+
+## Model Building
+
+Main package used: mgcv
+
+The main plot that I looked at was the correlation plot. This plot guided my understanding of co-variates that were more independent of others and the ones that had heavy dependencies. When building the model, I took into account the interaction effects primarily by using this plot.
+
+corrplot(train_cor)
+
+Forward selection and EDA (Exploratory Data Analysis) primarily used from this point on to better guide my rmlse score.
+Here are a few examples of the fits that I used and some reasoning behind them.
+
+#First Fit
+fit2 <- gam(log(PRICE)~s(GBA) + s(BATHRM) + s(ROOMS) + ti(GBA, BATHRM) + ti(GBA, ROOMS) + ti(BATHRM, ROOMS) , data=imp_train_split, method="REML", family=gaussian, select=TRUE)
+
+#Second Fit
+fit6 <- gam(log(PRICE)~s(GBA) + s(BATHRM) + ti(GBA, BATHRM) + ti(GBA, ROOMS) + s(BEDRM) + ti(GBA,BEDRM) + ti(GBA, FIREPLACES) + s(FIREPLACES), data=imp_train_split, method="REML", family=gaussian, select=TRUE)
+
+#Third Fit
+fit6_prime <- gam(log(PRICE)~s(GBA) + s(BATHRM) + s(BEDRM) + ti(GBA,BEDRM) + ti(GBA, ROOMS) + s(FIREPLACES) + s(LONGITUDE) + s(WARD, k=8) + ti(GBA, LONGITUDE) + ti(GBA, WARD), data=imp_train_split, method="REML", family=gaussian, select=TRUE)
+
+#Fourth Fit
+fit9 <- gam(log(PRICE)~s(GBA) + s(BATHRM) + s(BEDRM) + ti(GBA,BEDRM) + ti(GBA, ROOMS) + s(FIREPLACES) + s(LONGITUDE) + s(WARD, k=8) + ti(GBA, LONGITUDE) + ti(GBA, WARD) + s(SALEDATE) + s(ZIPCODE) + ti(ZIPCODE, WARD) + s(LANDAREA) + ti(GBA, LANDAREA) + s(EYB) + ti(EYB,GBA), data=imp_train_split, method="REML", family=gaussian, select=TRUE)
+
+#Fifth Fit 
+fit16 <- gam(log(PRICE) ~ s(GBA) + s(BATHRM) + s(SALEDATE) + s(YR_RMDL) + s(BEDRM) + ti(GBA, BEDRM) + s(LANDAREA) + s(EYB) + ti(EYB, GBA) + s(LONGITUDE) + s(WARD, k=7) + s(ROOMS) + ti(GBA, ROOMS) + ti(GBA, LANDAREA) + ti(WARD, LONGITUDE) + ti(GRADE,LONGITUDE), data = imp_train_split, method="REML", family=gaussian, select=TRUE)
+
+The Fifth Fit displayed here was a real game-changer. I was able to real bring down my rmsle score and made slight changes to it in the models that follow. 
+
+#Sixth Fit
+fit20 <- gam(log(PRICE) ~ s(GBA) + s(BATHRM) + s(SALEDATE) + s(YR_RMDL) + s(BEDRM) + ti(GBA, BEDRM) + s(LANDAREA) + s(EYB) + ti(EYB, GBA) + s(LONGITUDE) + s(WARD, k=7) + s(ROOMS) + ti(GBA, ROOMS) + ti(GBA, LANDAREA) + ti(WARD, LONGITUDE) + s(AC,k=2), data = imp_train_split, method="REML", family=gaussian, select=TRUE)
+
+#Seventh Fit
+fit22 <- gam(log(PRICE) ~ s(GBA) + s(BATHRM) + s(SALEDATE) + s(YR_RMDL) + s(BEDRM) + ti(GBA, BEDRM) + s(LANDAREA) + s(EYB) + ti(EYB, GBA) + s(LONGITUDE) + s(WARD, k=7) + s(ROOMS) + ti(GBA, ROOMS) + ti(GBA, LANDAREA) + ti(WARD, LONGITUDE) + ti(GRADE,LONGITUDE) + ti(LONGITUDE, CNDTN), data = imp_train_split, method="REML", family=gaussian, select=TRUE)
+summary(fit22)
+
+#Eighth Fit
+fit27 <- gam(log(PRICE) ~ s(GBA) + s(BATHRM) + s(SALEDATE) + s(YR_RMDL) + s(BEDRM) + ti(GBA, BEDRM) + s(LANDAREA) + s(EYB) + ti(EYB, GBA) + s(LONGITUDE) + s(WARD, k=7) + s(ROOMS) + ti(GBA, ROOMS) + ti(GBA, LANDAREA) + ti(WARD, LONGITUDE) + ti(GRADE,LONGITUDE) + ti(LONGITUDE, CNDTN) + ti(LONGITUDE, ZIPCODE) + s(EXTWALL) + s(INTWALL, k=9)+s(KITCHENS)+s(STORIES)+ti(STORIES, GBA), data = imp_train_split, method="REML", family=gaussian, select=TRUE)
+
+pred <- predict(fit22, newdata=imp_prof_data)
+res <- data.frame(Id=imp_prof_data$Id, PRICE=exp(pred))
+return(res)
+
+The best model fit for me (both on the public and private score as well) was fit22. I continued with choosing this fit as my final one. 
+
+```{r}
+SmoothingModel <- function(raw_train_data, raw_prof_data){
+# Preprocessing
+  
+#raw_train_data = read.csv('house_train.csv')
+
+#separate training data into categorical and continuous variables
+raw_train_cat <- raw_train_data[, c("BATHRM", "HF_BATHRM", "HEAT", "AC", "BEDRM", "ROOMS", "STORIES", "STYLE", "GRADE", "CNDTN", "EXTWALL", "ROOF", "INTWALL", "KITCHENS", "FIREPLACES", "ZIPCODE", "WARD", "QUADRANT", "ASSESSMENT_NBHD", "ASSESSMENT_SUBNBHD")]
+raw_train_cont <- raw_train_data[, !names(raw_train_data) %in% names(raw_train_cat)]
+#extract only the year from the saledate
+raw_train_cont$SALEDATE = substr(raw_train_data$SALEDATE,1,4)
+
+#convert continuous and categorical vectors into numerics (for the purpose of imputation)
+numeric_train_cat = apply(raw_train_cat, 2, function(x) as.numeric(as.factor(x)))
+numeric_train_cont <- apply(raw_train_cont,2,function(x) as.numeric(x))
+
+#conversion to dataframes
+numeric_train_cont_df <- as.data.frame(numeric_train_cont)
+numeric_train_cat_df <- as.data.frame(numeric_train_cat)
+numeric_train_df <- cbind(numeric_train_cont_df, numeric_train_cat_df)
+
+#split the training set 75/25 into a train and test set 
+trainIndex <- sample(1:nrow(numeric_train_df), size = round(0.8*nrow(numeric_train_df)), replace=FALSE)
+numeric_train_split <- numeric_train_df[trainIndex,]
+numeric_test_split <- numeric_train_df[-trainIndex,]
+
+#fill in missing values using the mice package - note done for vectors with fewer than 5% of missing data
+imp_train_split <- mice(numeric_train_split, m=5, maxit=50, method='cart', seed=500)
+imp_train_split <- complete(imp_train_split,4)
+
+test_split_prices <- numeric_test_split$PRICE
+numeric_test_split <- numeric_test_split[, !(names(numeric_test_split) %in% c("PRICE"))]
+imp_test_split <- mice(numeric_test_split, m=5, maxit=50, method='cart', seed=500)
+imp_test_split <- complete(imp_test_split,4)
+
+#train_cor <- cor(imp_train_split)
+
+#professors data
+#raw_prof_data <- read.csv('house_test.csv')
+prof_test_cat <- raw_prof_data[, c("BATHRM", "HF_BATHRM", "HEAT", "AC", "BEDRM", "ROOMS", "STORIES", "STYLE", "GRADE", "CNDTN", "EXTWALL", "ROOF", "INTWALL", "KITCHENS", "FIREPLACES", "ZIPCODE", "WARD", "QUADRANT", "ASSESSMENT_NBHD", "ASSESSMENT_SUBNBHD")]
+prof_test_cont <- raw_prof_data[, !names(raw_prof_data) %in% names(prof_test_cat)]
+prof_test_cont$SALEDATE <- substr(prof_test_cont$SALEDATE,1,4)
+
+numeric_prof_cat <- apply(prof_test_cat, 2, function(x) as.numeric(as.factor(x)))
+numeric_prof_cont <- apply(prof_test_cont, 2, function(x) as.numeric(x))
+numeric_prof_cont <- as.data.frame(numeric_prof_cont)
+numeric_prof_cat <- as.data.frame(numeric_prof_cat)
+numeric_prof_test <- cbind(numeric_prof_cont, numeric_prof_cat)
+
+imp_prof_data <- mice(numeric_prof_test, m=5, maxit=50, method='cart', seed=500)
+imp_prof_data <- complete(imp_prof_data, 4)
+
+fit22 <- gam(log(PRICE) ~ s(GBA) + s(BATHRM) + s(SALEDATE) + s(YR_RMDL) + s(BEDRM) + ti(GBA, BEDRM) + s(LANDAREA) + s(EYB) + ti(EYB, GBA) + s(LONGITUDE) + s(WARD, k=7) + s(ROOMS) + ti(GBA, ROOMS) + ti(GBA, LANDAREA) + ti(WARD, LONGITUDE) + ti(GRADE,LONGITUDE) + ti(LONGITUDE, CNDTN), data = imp_train_split, method="REML", family=gaussian, select=TRUE)
+pred <- predict(fit22, newdata=imp_prof_data)
+res <- data.frame(Id=imp_prof_data$Id, PRICE=exp(pred))
+return(res)
+}
+```
+
+## Conclusion 
+
+With a better model building process this time around with a better understanding of the best variables. I also noticed that with increasing the number of variables, I had to pick very carefully ensuring that the number of interactions were very high. 
+
+
+
+
+

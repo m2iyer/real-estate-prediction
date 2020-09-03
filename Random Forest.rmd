@@ -1,0 +1,76 @@
+
+#Libraries
+```{r}
+library(stats)
+library(randomForest)
+library(ranger)
+library(caret)
+library(h2o)
+#library(metrics)
+
+
+
+# dtrain: data.frame for the training set
+# dtest: data.frame for the test set
+# should return a data.frame for prediction
+```
+
+```{r}
+RFModel <- function(dtrain, dtest){
+#Further details on Preprocessing and model selection can be seen in Smoothing.rmd
+
+    #load('C:/Users/.../Documents/house.RData')
+    raw_train_cat <- dtrain[, c("BATHRM", "HF_BATHRM", "HEAT", "AC", "BEDRM", "ROOMS", "STORIES", "STYLE", "GRADE", "CNDTN", "EXTWALL", "ROOF", "INTWALL", "KITCHENS", "FIREPLACES", "ZIPCODE", "WARD", "QUADRANT", "ASSESSMENT_NBHD", "ASSESSMENT_SUBNBHD")]
+    raw_train_cont <- dtrain[, !names(dtrain) %in% names(raw_train_cat)]
+    raw_train_cont$SALEDATE = substr(dtrain$SALEDATE,1,4)
+    
+    numeric_train_cat = apply(raw_train_cat, 2, function(x) as.numeric(as.factor(x)))
+    numeric_train_cont <- apply(raw_train_cont,2,function(x) as.numeric(x))
+    
+    numeric_train_cont_df <- as.data.frame(numeric_train_cont)
+    numeric_train_cat_df <- as.data.frame(numeric_train_cat)
+    numeric_train_df <- cbind(numeric_train_cont_df, numeric_train_cat_df)
+    
+    trainIndex <- sample(1:nrow(numeric_train_df), size = round(0.8*nrow(numeric_train_df)), replace=FALSE)
+    numeric_train_split <- numeric_train_df[trainIndex,]
+    numeric_test_split <- numeric_train_df[-trainIndex,]
+    
+    imp_train_split <- mice(numeric_train_split, m=5, maxit=20, method='cart', seed=500)
+    imp_train_split <- complete(imp_train_split,4)
+    
+    test_split_prices <- numeric_test_split$PRICE
+    numeric_test_split <- numeric_test_split[, !(names(numeric_test_split) %in% c("PRICE"))]
+    imp_test_split <- mice(numeric_test_split, m=5, maxit=20, method='cart', seed=500)
+    imp_test_split <- complete(imp_test_split,4)
+    
+    train_cor <- cor(imp_train_split)
+    
+    #professors data
+    
+    prof_test_cat <- dtest[, c("BATHRM", "HF_BATHRM", "HEAT", "AC", "BEDRM", "ROOMS", "STORIES", "STYLE", "GRADE", "CNDTN", "EXTWALL", "ROOF", "INTWALL", "KITCHENS", "FIREPLACES", "ZIPCODE", "WARD", "QUADRANT", "ASSESSMENT_NBHD", "ASSESSMENT_SUBNBHD")]
+    prof_test_cont <- dtest[, !names(dtest) %in% names(prof_test_cat)]
+    prof_test_cont$SALEDATE <- substr(prof_test_cont$SALEDATE,1,4)
+    
+    numeric_prof_cat <- apply(prof_test_cat, 2, function(x) as.numeric(as.factor(x)))
+    numeric_prof_cont <- apply(prof_test_cont, 2, function(x) as.numeric(x))
+    numeric_prof_cont <- as.data.frame(numeric_prof_cont)
+    numeric_prof_cat <- as.data.frame(numeric_prof_cat)
+    numeric_prof_test <- cbind(numeric_prof_cont, numeric_prof_cat)
+    
+    imp_prof_data <- mice(numeric_prof_test, m=5, maxit=20, method='cart', seed=500)
+    imp_prof_data <- complete(imp_prof_data, 4)
+    
+    # Random Forests model
+    fit <- randomForest(log(PRICE) ~ AC + CNDTN + 
+                             ASSESSMENT_NBHD + HEAT + GRADE + LANDAREA +  
+                             GBA + ROOMS + BATHRM + FIREPLACES + SALEDATE + LONGITUDE + LATITUDE + 
+                             WARD + STYLE + HF_BATHRM + BEDRM + YR_RMDL,
+                         data = imp_train_split, importance = T, mtry = 3,
+                         ntree = 500)
+    pred <- predict(fit, newdata=imp_prof_data)
+    res <- data.frame(Id=dtest$Id, PRICE=exp(pred))
+    return(res)
+
+}
+
+```

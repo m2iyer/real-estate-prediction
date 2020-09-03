@@ -1,0 +1,645 @@
+---
+title: "Final Project"
+author: "Jane Doe"
+date: "DD/MM/YYYY"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# for libraries and data
+#install.packages("DT", repos = "http://cran.us.r-project.org")
+#install.packages('expss', repos = "http://cran.us.r-project.org")
+#install.packages('mice', repos = "http://cran.us.r-project.org")
+#install.packages('knitr', repos = "http://cran.us.r-project.org")
+library(expss)
+library(DT)
+library(mice)
+library(knitr)
+library(corrplot)
+load('Final.Rdata')
+```
+
+# Summary
+
+This report describes my approach to use a variety of machine learning models to predict the house prices of the given price modeling dataset (a Kaggle competition). 
+
+Depending on the variety of datasets given for each competition, I generally modify some of the raw data and impute different values. The different methods that I have used is the following
+
+- linear models (standardized and regularized)
+- Smoothing methods
+- Random Forests
+- Gradient boosting (gradient boosting machines and extreme gradient boosting)
+
+Since each of the models were built in progression, different model building techniques have been used individually depending on practices that best suit the model and bring the lowest RMSLE on the public and private Kaggle dataset and my own private test dataset (20 - 25% of the given data while 75 - 80% has been used to train the model).The models encompass different techniques that have been used to modify the datasets and create models best suited to lwoer the RMSLE and perform better predictions. In no particular order, I generally took the following steps - Visualize the data in both R through pair plots, correlation plots and spot outliers (if any), impute the missing values in the data depending on the number of missing values and the importance that the variate played in the model building process and then build the model itself. In the Data and Pre-processing subjects, I walk through the best techniques to play with the raw data with avoiding excess bias. In the Stastical Analysis, I walk through each of the model building techniques and the associated insights that played into making key decisions for them. 
+
+\newpage
+
+# Data
+
+The raw data consists of 10002 rows for the 4 projects. The current dataset in 'Final.Rdata' consists of both the training data (10002 rows) and testing data (2472) rows of data that was used on Kaggle to test the model building process.
+I mainly began to explore the data visually by looking at the relation between different variates and the Price of houses. This allowed be to understand the data on a more intuitive scale. Some of the graphs I focussed on have been displayed below - while the rest have been referrenced to in Appendix - A1. 
+
+```{r, echo=FALSE}
+par(mfrow = c(2,2))
+plot(houses$PRICE, cex=0.25)
+boxplot(PRICE~BATHRM, data = houses,main="BATHRM", cex=0.25)
+boxplot(PRICE~HF_BATHRM,data=houses,main="HF_BATHRM",cex=0.25)
+boxplot(PRICE~HEAT, data=houses, main="HEAT",cex=0.25)
+boxplot(PRICE~AC, data=houses, main="AC",cex=0.25)
+boxplot(PRICE~ROOMS, data=houses, main="ROOMS",cex=0.25)
+
+
+plot(~AYB+PRICE, data=houses, main="AYB", cex=0.25)
+plot(~EYB+PRICE, data=houses, main="EYB", cex=0.25)
+boxplot(PRICE~STORIES, data=houses, main="STORIES", cex=0.25)
+boxplot(PRICE~STYLE, data=houses, main="STYLE", cex=0.25)
+plot(~SALEDATE+PRICE,data=houses, main="SALEDATE", cex=0.25)
+plot(~GBA+PRICE, data=houses, main="GBA", cex=0.25)
+
+
+#check correlation of the factors that appear intuitively correlated when #thinking about the variates that affect pricing in the real-world
+#The reason we go about checking this is to get rid of interaction 
+#if any among the variates. This will be more important when 
+#building the model.
+
+boxplot(PRICE~STYLE, data=houses, main="STYLE", cex=0.25)
+boxplot(PRICE~GRADE, data=houses, main=" GRADE", cex=0.25)
+boxplot(PRICE~ROOF, data=houses, main="ROOF", cex=0.25)
+boxplot(PRICE~EXTWALL,data=houses, main="EXTWALL", cex=0.25)
+boxplot(PRICE~INTWALL,data=houses, main="CNTDN", cex=0.25)
+boxplot(PRICE~KITCHENS, data=houses, main="KITCHENS", cex=0.25)
+boxplot(PRICE~FIREPLACES, data=houses, main="FIREPLACES", cex=0.25)
+
+plot(~PRICE + LANDAREA,data=houses, main="LANDAREA", cex=0.25)
+plot(~PRICE + ZIPCODE, data=houses,main="ZIPCODE",  cex=0.25)
+plot(~PRICE + LATITUDE, data=houses, main="LATITUDE", cex=0.25)
+plot(~PRICE + LONGITUDE, data=houses, main="LONGITUDE", cex=0.25)
+boxplot(PRICE~ASSESSMENT_NBHD, data=houses, main="NBHD", cex=0.25)
+boxplot (PRICE~WARD, data=houses, main="WARD", cex=0.25 )
+
+
+```
+
+# Preprocessing
+
+I would divide the given dataset into a training and test data set. Since the dataset containts 12474 data points, I take 80% of the data to be the test set and the remaining 20% to be the test set (A3 in the Appendix for more details on the code.)
+
+There is missing data in the training set (*imp_train_split*) - 
+
+AYB, YR_RMDL, STORIES, QUADRANT, ASSESSMENT_SUBNBHD - *mice* imputation with `m=2, maxit=20, method = cart, seed=500`
+
+The test set (*imp_test_split*)
+AYB, YR_RMDL, STORIES, KITCHENS, QUADRANT, ASSESSMENT_SUBNBHD - *mice* imputation with `m=5, maxit=50, method = cart, seed=500`
+
+## Transformation
+- PRICE: log transformation of the response variate
+
+- SALEDATE: Extract year
+
+- All missing data has  not been imputed. I did see that KITCHENS had 1, AYB only had 28 rows missing, STORIES only had 7 missing, ASSESSMENT_SUBNBHD had 2994, QUADRANT had 60, YR_RMDL had 5049. This is why I decided to eliminate the rows that had missing data from KITCHENS, STORIES, QUADRANT AND AYB since they consisted of less than 1% of the data. Again, this practice is not always the best to resort to. But considering that the amount of missing data is very small, it is best to eliminate it. It quite often happens that when imputing missing data, since a addition has been made to the raw data, the bias has increased thereby affecting the prediction accuracy. Hence in my opinion, it is better to eliminate missing data (less than 1%) of the complete dataset rather than to impute it
+
+
+```{r, echo=FALSE}
+houses <- na.omit(houses, cols=c("KITCHENS", "STORIES", "QUADRANT", "AYB"))
+```
+
+- Other transformations that were considered: In the Boosting project, I considered a BoxCox transformation on certain variates. This was to see the affect of normalizing both the training and test set on the model fit and whether it proved to have a positive impact. Variates with skewness > 0.7 underwent the transformation. The dataset with the transformed variates was then used to train the model and the same transformation the test set as well. The RMSLE was brought down to 0.172 on my own test but 0.210 on the Kaggle test. I realized that this transformation led to me overfitting my data hence it was not used. This is referrences to in Appendix - A8
+
+\newpage
+
+```{r}
+SmoothingModel <- function(raw_train_data, raw_prof_data){
+# Preprocessing of data
+  
+#raw_train_data = read.csv('house_train.csv')
+
+
+raw_train_cat <- raw_train_data[, c("BATHRM", "HF_BATHRM", "HEAT", "AC", "BEDRM", "ROOMS", "STORIES", "STYLE", "GRADE", "CNDTN", "EXTWALL", "ROOF", "INTWALL", "KITCHENS", "FIREPLACES", "ZIPCODE", "WARD", "QUADRANT", "ASSESSMENT_NBHD", "ASSESSMENT_SUBNBHD")] #categorical data
+raw_train_cont <- raw_train_data[, !names(raw_train_data) %in% names(raw_train_cat)] #continuous data
+raw_train_cont$SALEDATE = substr(raw_train_data$SALEDATE,1,4) #extract only the date from the saledate
+
+#converting all categorical and continuous variables to numeric values for ease in imputation
+numeric_train_cat = apply(raw_train_cat, 2, function(x) as.numeric(as.factor(x)))
+numeric_train_cont <- apply(raw_train_cont,2,function(x) as.numeric(x))
+
+#conversion to dataframes and build a final dataframe
+numeric_train_cont_df <- as.data.frame(numeric_train_cont)
+numeric_train_cat_df <- as.data.frame(numeric_train_cat)
+numeric_train_df <- cbind(numeric_train_cont_df, numeric_train_cat_df)
+
+#dividing given train data into train and test data in 75% and 25% portions
+trainIndex <- sample(1:nrow(numeric_train_df), size = round(0.8*nrow(numeric_train_df)), replace=FALSE)
+numeric_train_split <- numeric_train_df[trainIndex,]
+numeric_test_split <- numeric_train_df[-trainIndex,]
+
+#imputing train and test data
+imp_train_split <- mice(numeric_train_split, m=5, maxit=50, method='cart', seed=500)
+imp_train_split <- complete(imp_train_split,4)
+
+test_split_prices <- numeric_test_split$PRICE
+numeric_test_split <- numeric_test_split[, !(names(numeric_test_split) %in% c("PRICE"))]
+imp_test_split <- mice(numeric_test_split, m=5, maxit=50, method='cart', seed=500)
+imp_test_split <- complete(imp_test_split,4)
+
+train_cor <- cor(imp_train_split)
+
+#professors data - primary test data
+#raw_prof_data <- read.csv('house_test.csv')
+prof_test_cat <- raw_prof_data[, c("BATHRM", "HF_BATHRM", "HEAT", "AC", "BEDRM", "ROOMS", "STORIES", "STYLE", "GRADE", "CNDTN", "EXTWALL", "ROOF", "INTWALL", "KITCHENS", "FIREPLACES", "ZIPCODE", "WARD", "QUADRANT", "ASSESSMENT_NBHD", "ASSESSMENT_SUBNBHD")]
+prof_test_cont <- raw_prof_data[, !names(raw_prof_data) %in% names(prof_test_cat)]
+prof_test_cont$SALEDATE <- substr(prof_test_cont$SALEDATE,1,4)
+
+numeric_prof_cat <- apply(prof_test_cat, 2, function(x) as.numeric(as.factor(x)))
+numeric_prof_cont <- apply(prof_test_cont, 2, function(x) as.numeric(x))
+numeric_prof_cont <- as.data.frame(numeric_prof_cont)
+numeric_prof_cat <- as.data.frame(numeric_prof_cat)
+numeric_prof_test <- cbind(numeric_prof_cont, numeric_prof_cat)
+
+imp_prof_data <- mice(numeric_prof_test, m=5, maxit=50, method='cart', seed=500)
+imp_prof_data <- complete(imp_prof_data, 4)
+
+#final fit that was chosen after analyzing Kaggle Score against professors test data
+fit22 <- gam(log(PRICE) ~ s(GBA) + s(BATHRM) + s(SALEDATE) + s(YR_RMDL) + s(BEDRM) + ti(GBA, BEDRM) + s(LANDAREA) + s(EYB) + ti(EYB, GBA) + s(LONGITUDE) + s(WARD, k=7) + s(ROOMS) + ti(GBA, ROOMS) + ti(GBA, LANDAREA) + ti(WARD, LONGITUDE) + ti(GRADE,LONGITUDE) + ti(LONGITUDE, CNDTN), data = imp_train_split, method="REML", family=gaussian, select=TRUE)
+pred <- predict(fit22, newdata=imp_prof_data)
+res <- data.frame(Id=imp_prof_data$Id, PRICE=exp(pred))
+return(res)
+}
+```
+
+
+
+\newpage
+## Descriptive Analysis
+
+The data can also be described better by looking at the range of data in the variates or at the data table below. Only 15 data points have been included for the purpose of viewing and searching through the table. The variable description enlists around 29 variables including the price. From the plots above we conculde the following  - 
+1. Less than 5% of the PRICE has outliers - hence this wouldn't be something to worry too much about
+2. HF_BATHRM, BATHRM, GRADE lacks any significant impact on the PRICE in their higher ranges
+3. LANDAREA, FIREPLACES, AYB, EYB, SALEDATE, LONGITUDE BATHRM seem to have a significant impact on PRICE. Hence it will be important to safely remove outliers if any within these variates. 
+
+
+Variable Importance can also be further refined when looking at the Forward or Backward model selection process (for linear/smoothing models primarily since we use the _caret_ library for forests/boosting models). Below we look at a smal range of the data values to see if it requires formatting. 
+
+```{r, echo=FALSE}
+kable(houses[1:25,1:9], caption = "House Pricing Table")
+kable(houses[1:25,10:17])
+kable(houses[1:25,18:24])
+kable(houses[1:25,25:29])
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results=FALSE}
+    dtrain <- houses[,1:29]
+    houses <- na.omit(houses, cols=c("KITCHENS", "STORIES", "QUADRANT", "AYB"))
+raw_train_cat <- dtrain[, c("BATHRM", "HF_BATHRM", "HEAT", "AC", "BEDRM", "ROOMS", "STORIES", "STYLE", "GRADE", "CNDTN", "EXTWALL", "ROOF", "INTWALL", "KITCHENS", "FIREPLACES", "ZIPCODE", "WARD", "QUADRANT", "ASSESSMENT_NBHD", "ASSESSMENT_SUBNBHD")]
+    raw_train_cont <- dtrain[, !names(dtrain) %in% names(raw_train_cat)]
+    raw_train_cont$SALEDATE = substr(dtrain$SALEDATE,1,4)
+    
+    numeric_train_cat = apply(raw_train_cat, 2, function(x) as.numeric(as.factor(x)))
+    numeric_train_cont <- apply(raw_train_cont,2,function(x) as.numeric(x))
+    
+    numeric_train_cont_df <- as.data.frame(numeric_train_cont)
+    numeric_train_cat_df <- as.data.frame(numeric_train_cat)
+    numeric_train_df <- cbind(numeric_train_cont_df, numeric_train_cat_df)
+    
+    trainIndex <- sample(1:nrow(numeric_train_df), size = round(0.8*nrow(numeric_train_df)), replace=FALSE)
+    numeric_train_split <- numeric_train_df[trainIndex,]
+    numeric_test_split <- numeric_train_df[-trainIndex,]
+    
+    imp_train_split <- mice(numeric_train_split, m=2, maxit=5, method='cart', seed=500)
+    imp_train_split <- complete(imp_train_split,2)
+    
+    test_split_prices <- numeric_test_split$PRICE
+    #numeric_test_split <- numeric_test_split[, !(names(numeric_test_split) %in% c("PRICE"))]
+    imp_test_split <- mice(numeric_test_split, m=2, maxit=5, method='cart', seed=500)
+    imp_test_split <- complete(imp_test_split,2)
+
+```
+
+
+The following is observed - 
+- Formatting is required for the variate SALEDATE to a year format. 
+- There is missing data (NA) - which would most likely require multiple imputation using the _mice_ package
+- The categorical variables must be convereted to numeric/factor format for the ease of use
+- Having other continuous variates in numeric format as well would allow us to easily use imputation on the dataset
+
+See the following correlation plot of the data. 
+
+```{r, echo=FALSE}
+par(mai=c(3,3,3,3), cex=0.85)
+mat <- cor(imp_train_split)
+corrplot(mat)
+```
+
+\newpage
+
+# Statistical Analysis
+
+## Gradient Boosting
+
+- Private Kaggle Score: 0.192
+
+- Ease of Use: Relatively easy using _gbm_, Requires thorough testing (GPU power) or different hyperparamters that work well with the model. In my model, the following parameters were primarily tuned - _n.trees, interaction.depth, shrinkage, n.minobsinnode, bag.fraction, train.fraction_ .
+
+1. _n.trees_ stands for the number of trees (the number of gradient boosting iteration) built in the model and increasing _N_ can decrease the error in training set but can also lead to overfitting. 
+2. _interaction.depth_ refers to the maximum nodes allowed in every tree - generally a default of 6 nodes per tree seems to perform well. 
+3. _shrinkage_ is considered as the learning rate. It most commonly reduces regression co-efficients to zero and thus, reduces the impact of potentially unstable regression co-efficients. So typically in the case of a tree, the shrinkage factor is used to reduce the impact of each additional learner/tree.It hels with rreducing the impact of each incremental step and penalizes the importance of each consecutive iteration. Its best to use a small learning rate when growing large trees.
+4. _n.minobsinnode_ is the minimum number of observations in a tree's terminal node. I tried a range of values from 5 to 15. 
+5. _bag.fraction_ is the fraction of the training set randomly selected to propose the next tree in the expansion. Its best to use a bag.fraction less than 0.5 when the training sample is large. 
+5. _train.fraction_ is used to compute out of sample estimates to calculate the loss function. 
+
+The different range of values for tuning can be seen in the Appendix - A5.  The specific ranges were chosen based on the best values for the size of the training set. 
+
+- Computational efficiency: High computational efficiency but hyperparameter tuning can be rather elaborate process. It took about 45 minutes to run the hyperparameter tuning function to fit different models and obtain the model with the lowest RMSE. This process can be rather time consuming and computationally rigoruos. However, once the different values are chosen, it is pretty straightforward to fit the training set and ensure that the model is not being overfit. 
+
+
+- Insights:
+1. By using the log transformation of PRICE, SALEDATE as a year, I was able to significantly reduce my RMSLE to 0.18 on my own test set.
+2. It is important to remember that boosting differs from bagging in the way that each model is built on top of previous ones. 
+3. I have not accounted for variable interactions in boosting. However, to understand the effect of different variates on the model, I used the _as_tibble_ function. Using this function, you can view the relative influence each variable has on model predictions. Using the information we have here, we can now choose to leave out variates that seem to have a very small impact on the prediction. In my case, I tried that on my own training sets but it seems to be overfitting the data (as it increased by RMSLE score on Kaggle) hence I left this out and used all variates in my training set. 
+4. The main insight that I took away from boosting was understanding hyperparameter tuning (based on individual datasets) since _gbm_ is prone to overfitting. 
+
+The boosting model that was chosen can be found in A6.
+
+## Random Forest
+
+Random Forest is a tree based algorithm involving building several trees and then combining the output to allow for better generalization ability of the model. The method of combinging trees is known as an ensemble method. Ensembling is a combination of weak learners/trees to produce a strong learner. The important idea about a random forest is that it only considers a subset of the predictors at a tree split - this results in decorrelated trees and a more reliable averaqe output, which makes it resistant to correlated predictors. 
+
+- Private Kaggle Score: 0.20
+- Ease of Use: Very easy using _randomForest_ . Random Forest also requires regular computational power to choose tuning parameters. Since there is only a handful of parameters in this case that affect the prediction power, I did not use a hyperparameter tuning function but manually tested different tuning parameters. 
+
+1. _ntree_ represents the number of trees. We would want enough trees to stabilize the error but using too many trees is unnecessarily insufficient, Especially when using very large datasets. Hence I used 4500 trees. 
+2. _mtry_ represents the number of variables to randomly sample at each split. I tried using mtry values spaced at 5 between 2 and p variables of interest.
+3. _sampsize_ the number of sample to train on. By lowering it too much you may introduce too much bias and my increasing it too much you may cause overfitting since it increases the variance. Hence it is best to stay in the 60 - 80% range.
+4. _nodesize_ represents the minimum number of samples within the terminal nodes. This controls the complexity of the tree - deeper trees with greater node sizes introduce more variance (risk of overfitting) and shallower trees introduce more bias (risk of not fully capturing unique patterns/relationships in the data)
+5. _maxnodes_ is the maximum number of terminal nodes. More nodes equate to more deeper trees and lesser indicates more shallower trees. 
+6. _importance_ is set to 'impurity' so that I could assess variable importance. Later I set the _importance_ to 'T'. Variable importance is measured by recording the decrease in the MSE each time a variable is used as a node split in the tree. The remaining error that is left after a node split is called node impurity and a variable that is able to reduce this is an important one!
+
+I chose _ranger_ for my final modelling process. The main reason I chose ranger is for the ease of use and better runtime compared to RandomForest. 
+
+- Computational efficiency: High computational efficiency with less than 4500 trees
+
+- Insights:
+1. By using the log transformation of PRICE, SALEDATE as a year the prediction power is significantly improved. 
+2. Variable Importance in this case is determined by using _importance = 'impurity_ . I have included the code to the model and variable importance in Appendix - A6. 
+3. I did not pay too much attention to correlation between variates. Random Forests unlike bagging allows for predictors that are correlated since it split trees optimally to reduce the error using _mtry_ as explained above.
+4. _ranger_  is much more computationally effiecient compared to _randomForest_. However a much more computationally efficient Java based solution would be _H2O_ which is I have not used since it it out of the course material. 
+
+## Smoothing
+
+- Private Kaggle Score: 0.21
+- Ease of Use: Very easy using _gam_
+- Computational efficiency: High computational efficiency even given the number of interaction terms that were used in the model described in Appendix - A4.
+
+- Interaction terms: It is very important to deal with interaction terms. I primarily relied on using _ti()_ for the interactive terms. My general approach to building the model was typically adding variables that were chosen by forward selection and then adding or eliminating interaction terms after looking at the effect on the RMSLE. 
+
+- Insights:
+1. By using the log transformation of PRICE, SALEDATE as a year and using forward selection, I was able to significantly reduce my RMSLE to 0.18 on my own test set.
+2. When using the smoothing, you can use _family = gaussian_ to further emphasize the importance of using a normal distribution for variates when fitting the model
+3. It is again very important to use 'Variable Importance' here. We can do that by using VIF or Backward, Forward and Step-wise selection as well. I also utilized correlation plots to better understand interaction effects between different variates. 
+4. Computational efficiency decreases with an increased number of variates as would be considered (but performs better than local regression _loess_ )
+
+
+## Linear Model 
+
+- Private Kaggle Score: 0.68
+- Ease of Use: medium/difficult
+- Computational efficiency: Low efficiency. Time taken to run the model increases with the number of independent and interaction terms introduced. 
+- Interaction terms: It is very important to deal with interaction terms. The linear regression model relies on the idea that the model is built using
+  independent variates. Most interaction terms are spotted by viewing the correlation plot. In the following correlation plot we significant interaction 
+- Insights:
+1. It is very important to use 'Variable Importance' here. We can do that by using VIF or Backward, Forward and Step-wise selection as well. I also utilized correlation plots to better understand interaction effects between different variates. 
+
+2. Linear Regression works well computationally with data that has fewer number of variates. Since our dataset had around 28 variates even though the above methods were used for variable selection - it can be computationally intensive, considering interaction terms
+3. Considering the PRICE covers a large range of values, it is very important to perform a log transformation of the training data. 
+
+
+\newpage
+
+# Conclusion
+
+To conclude, we have looked through four very important modeling strategies used in machine learning. It is also very important to keep in mind that each of the strategies provide different fits and prediction powers. The choice od the modeling strategy lies in the volume of data, type of prediction (binomial, classification or random variable prediction) and ease of use. 
+
+I went over the different strategies that I utilized when working with Boosting, RandomForests, Smoothing and Linear models. Many of the times Boosting and Random Forests or Bagging can seem like a black box. It is very important to understand the degree to which the tuning parameters work for different training sets and to understand performance in terms of the bias-variance trade-off and whether or not the model is over-fitting the given data. The competitions taught me that generalization of any model on a variety of datasets makes it powerful and this is key in choosing the best model.
+
+Overall, if I had the choose the best model of the four, I would choose the Random Forest model. The number of parameters to tune are fewer compared to boosting and the computational efficiency is much better than the smoothing and linear models. Hence I would not require too much computational power and could tune the parameters manually as well without having to have functions that tested them for me. 
+
+
+# Appendix
+
+
+### A.1 
+
+You can also embed additional plots, for example:
+```{r, echo=FALSE}
+par (mfrow = c(2,2))
+plot(~AYB+PRICE, data=houses, main="AYB", cex=0.25)
+plot(~EYB+PRICE, data=houses, main="EYB", cex=0.25)
+boxplot(PRICE~STORIES, data=houses, main="STORIES", cex=0.25)
+boxplot(PRICE~STYLE, data=houses, main="STYLE", cex=0.25)
+plot(~SALEDATE+PRICE,data=houses, main="SALEDATE", cex=0.25)
+plot(~GBA+PRICE, data=houses, main="GBA", cex=0.25)
+
+plot(~STORIES+STYLE, data=houses, main="STORIES x STYLE", cex=0.25)
+plot(~GRADE+CNDTN, data=houses, main="GRADE x CNTDN", cex=0.25)
+plot(~BEDRM+BATHRM+ROOMS+HF_BATHRM, main="BEDRM CORR", data=houses, cex=0.25)
+plot(~INTWALL+EXTWALL, data=houses, main="INTWALL x EXTWALL", cex=0.25)
+
+```
+
+
+### A.2
+
+In a HTML document of this report you can search specific housing pricing variates and their corresponding values easily to get a better handle of the data using the following piece of code. 
+
+```{r, echo=FALSE, eval=FALSE}
+view_houses <- houses[sample(nrow(houses), 500), ]
+datatable(view_houses, rownames=FALSE, filter ="top", options=list(pageLength=5, scrollX=T))
+```
+
+### A.3
+
+Pre-processing the data
+```{r, eval=FALSE, echo=FALSE, message=FALSE}
+    dtrain <- houses[,1:29]
+    houses <- na.omit(houses, cols=c("KITCHENS", "STORIES", "QUADRANT", "AYB"))
+raw_train_cat <- dtrain[, c("BATHRM", "HF_BATHRM", "HEAT", "AC", "BEDRM", "ROOMS", "STORIES", "STYLE", "GRADE", "CNDTN", "EXTWALL", "ROOF", "INTWALL", "KITCHENS", "FIREPLACES", "ZIPCODE", "WARD", "QUADRANT", "ASSESSMENT_NBHD", "ASSESSMENT_SUBNBHD")]
+    raw_train_cont <- dtrain[, !names(dtrain) %in% names(raw_train_cat)]
+    raw_train_cont$SALEDATE = substr(dtrain$SALEDATE,1,4)
+    
+    numeric_train_cat = apply(raw_train_cat, 2, function(x) as.numeric(as.factor(x)))
+    numeric_train_cont <- apply(raw_train_cont,2,function(x) as.numeric(x))
+    
+    numeric_train_cont_df <- as.data.frame(numeric_train_cont)
+    numeric_train_cat_df <- as.data.frame(numeric_train_cat)
+    numeric_train_df <- cbind(numeric_train_cont_df, numeric_train_cat_df)
+    
+    trainIndex <- sample(1:nrow(numeric_train_df), size = round(0.8*nrow(numeric_train_df)), replace=FALSE)
+    numeric_train_split <- numeric_train_df[trainIndex,]
+    numeric_test_split <- numeric_train_df[-trainIndex,]
+    
+    imp_train_split <- mice(numeric_train_split, m=2, maxit=20, method='cart', seed=500)
+    imp_train_split <- complete(imp_train_split,2)
+    
+    test_split_prices <- numeric_test_split$PRICE
+    #numeric_test_split <- numeric_test_split[, !(names(numeric_test_split) %in% c("PRICE"))]
+    imp_test_split <- mice(numeric_test_split, m=2, maxit=20, method='cart', seed=500)
+    imp_test_split <- complete(imp_test_split,2)
+
+```
+
+
+### A.4 
+
+Smoothing model  - Best Fit
+
+```{r, eval = FALSE}
+fit27 <- gam(log(PRICE) ~ s(GBA) + s(BATHRM) + s(SALEDATE) + s(YR_RMDL) + s(BEDRM) + ti(GBA, BEDRM) + s(LANDAREA) + s(EYB) + ti(EYB, GBA) + s(LONGITUDE) + s(WARD, k=7) + s(ROOMS) + ti(GBA, ROOMS) + ti(GBA, LANDAREA) + ti(WARD, LONGITUDE) + ti(GRADE,LONGITUDE) + ti(LONGITUDE, CNDTN) + ti(LONGITUDE, ZIPCODE) + s(EXTWALL) + s(INTWALL, k=9)+s(KITCHENS)+s(STORIES)+ti(STORIES, GBA), data = imp_train_split, method="REML", family=gaussian, select=TRUE)
+```
+
+### A.5
+Gradient Boosting hyperparametric tuning
+
+```{r, eval=FALSE}
+ #hyperparamteric model tuning
+    
+    hyper_grid <- expand.grid(
+        shrinkage = c(.01, .1, .3),
+        interaction.depth = c(1, 3, 5),
+        n.minobsinnode = c(5, 10, 15),
+        bag.fraction = c(.65, .8, 1), 
+        optimal_trees = 0,               # a place to dump results
+        min_RMSE = 0                     # a place to dump results
+    )
+
+
+    random_index <- sample(1:nrow(imp_train_split), nrow(imp_train_split))
+    random_imp_train <- imp_train_split[random_index, ]
+    
+    # grid search 
+    for(i in 1:nrow(hyper_grid)) {
+        
+        # reproducibility
+        set.seed(123)
+        
+        # train model
+        gbm.tune <- gbm(
+            formula = PRICE ~ .,
+            distribution = "gaussian",
+            data = random_imp_train,
+            n.trees = 5000,
+            interaction.depth = hyper_grid$interaction.depth[i],
+            shrinkage = hyper_grid$shrinkage[i],
+            n.minobsinnode = hyper_grid$n.minobsinnode[i],
+            bag.fraction = hyper_grid$bag.fraction[i],
+            train.fraction = .75,
+            n.cores = NULL, # will use all cores by default
+            verbose = FALSE
+        )
+        
+        # add min training error and trees to grid
+        hyper_grid$optimal_trees[i] <- which.min(gbm.tune$valid.error)
+        hyper_grid$min_RMSE[i] <- sqrt(min(gbm.tune$valid.error))
+    }
+```
+ 
+ 
+### A.6
+ 
+Random Forest Model
+```{r, eval=FALSE}
+#variable importance determined
+OOB_RMSE <- vector(mode = "numeric", length = 100)
+
+for(i in seq_along(OOB_RMSE)) {
+
+  optimal_ranger <- ranger(
+    formula         = Sale_Price ~ ., 
+    data            = ames_train, 
+    num.trees       = 500,
+    mtry            = 24,
+    min.node.size   = 5,
+    sample.fraction = .8,
+    importance      = 'impurity'
+  )
+  
+  OOB_RMSE[i] <- sqrt(optimal_ranger$prediction.error)
+}
+
+hist(OOB_RMSE, breaks = 20)
+
+# arrange variables in order of importance in decreating the error using ggplot2
+
+ optimal_ranger$variable.importance %>% 
+  tidy() %>%
+  dplyr::arrange(desc(x)) %>%
+  dplyr::top_n(25) %>%
+  ggplot(aes(reorder(names, x), x)) +
+  geom_col() +
+  coord_flip() +
+  ggtitle("Top 25 important variables")
+ 
+ 
+ fit <- ranger(formula = log(PRICE) ~ ., data = imp_train_split, num.trees = 500, mtry = 24, min.node.size = 5, sample.fraction=.8, importance = 'impurity')
+```
+ 
+ 
+### A.7 
+ 
+Gradient Boosting model
+ 
+```{r, eval = FALSE}
+gbm.fit8 <- gbm(
+        formula = log(PRICE) ~ .,
+        distribution = "gaussian",
+        data = imp_train_split,
+        n.trees = 5000,
+        interaction.depth = 5,
+        shrinkage = 0.01,
+        n.minobsinnode = 15,
+        bag.fraction =0.65,
+        train.fraction = .75,
+        n.cores = NULL, # will use all cores by default
+        verbose = FALSE
+    ) 
+    
+
+```
+ 
+
+### A.8
+
+Box-Cox transformation of select variates - trial method to normalize vectors
+
+```{r, eval = FALSE} 
+
+    #Trial for BoxCox transformation of numeric variates with skewness > 0.7 
+
+    library(moments)
+    library(MASS)
+    
+    combi <- rbind(imp_train_split, imp_test_split)
+    feature_classes <- sapply(names(combi), function(x) {
+        class(combi[[x]])
+    })
+    
+    numeric_feats <- names(feature_classes[feature_classes != "character"])
+    
+    skewed_feats <- sapply(numeric_feats, function(x) {
+        skewness(combi[[x]], na.rm = TRUE)
+    })
+    
+    ## Keep only features that exceed a threshold (0.75) for skewness
+    skewed_feats <- skewed_feats[abs(skewed_feats) > 0.75]
+    
+    ## Transform skewed features with boxcox transformation
+    for (x in names(skewed_feats)) {
+        bc = BoxCoxTrans(combi[[x]], lambda = 0.15)
+        combi[[x]] = predict(bc, combi[[x]])}
+    
+  
+    #for the professor's test data
+    feature_classes_2 <- sapply(names(prof_test_data), function(x) {
+        class(prof_test_data[[x]])
+    })
+    numeric_feats_2 <- names(feature_classes_2[feature_classes_2 != "character"])
+    
+    skewed_feats_2 <- sapply(numeric_feats_2, function(x) {
+        skewness(prof_test_data[[x]], na.rm = TRUE)
+    })
+    
+    ## Keep only features that exceed a threshold (0.75) for skewness
+    skewed_feats_2 <- skewed_feats_2[abs(skewed_feats_2) > 0.75]
+    
+    ## Transform skewed features with boxcox transformation
+    for (x in names(skewed_feats_2)) {
+        bc = BoxCoxTrans(prof_test_data[[x]], lambda = 0.15)
+        prof_test_data[[x]] = predict(bc, prof_test_data[[x]])}
+    
+    
+    #training and testing of combi
+    combi_train <- combi[1:8002,]
+    #remove price from combi_train
+    combi_train_noprice <- combi_train[,!names(combi_train) %in% drop]
+    combi_test <- combi[8003:10002,]
+    combi_test_noprice <- combi_test[,!names(combi_test) %in% drop]
+    
+    #testing for xgboosting - kaggle xgboost
+    #removing variates related to the target variable -  keep price
+    train_price_labels <- log(imp_train_split[,"PRICE"])
+    drop <- c["PRICE"]
+    imp_train_split_noprice <- imp_train_split[,!names(imp_train_split) %in% drop]
+    
+    test_price_labels <- test_split_prices
+    train_data <- as.matrix(imp_train_split_noprice)
+    test_data <- as.matrix(imp_test_split)
+    prof_test_data <- imp_prof_data[, !(names(imp_prof_data)) %in% c("Id")]
+    prof_test_data$TotalSF <- prof_test_data$GBA + prof_test_data$LANDAREA
+    #determine skew for numeric features
+    
+    boost_fit <- xgboost(data = train_data, nfold=5, label = as.matrix(train_price_labels), nrounds = 2200, verbose = FALSE, objective = "reg:linear",      eval_metric = "rmse", nthread = 8, eta = 0.01, gamma = 0.0468, max_depth = 6, min_child_weight = 1.7817, subsample = 0.5213, colsample_bytree = 0.4603)
+    
+    boost_fit2 <- xgboost(data = as.matrix(combi_train_noprice), nfold=5, label = as.matrix(train_price_labels), nrounds = 2200, verbose = FALSE, objective = "reg:linear", eval_metric = "rmse", nthread = 8, eta = 0.01, gamma = 0.0468, max_depth = 6, min_child_weight = 1.7817, subsample = 0.5213, colsample_bytree = 0.4603)
+    
+    ```
+
+
+### A9 
+
+Plots and Code included in the Report 
+
+```{r, echo=FALSE, eval=FALSE}
+mat <- cor(imp_train_split)
+corrplot(mat)
+```
+
+
+```{r, echo=FALSE, eval=FALSE}
+kable(houses[1:25,1:9], caption = "House Pricing Table")
+kable(houses[1:25,10:19])
+kable(houses[1:25,20:29])
+```
+
+```{r, echo=FALSE}
+par(mfrow = c(2,2))
+plot(houses$PRICE, cex=0.25)
+boxplot(PRICE~BATHRM, data = houses,main="BATHRM", cex=0.25)
+boxplot(PRICE~HF_BATHRM,data=houses,main="HF_BATHRM",cex=0.25)
+boxplot(PRICE~HEAT, data=houses, main="HEAT",cex=0.25)
+boxplot(PRICE~AC, data=houses, main="AC",cex=0.25)
+boxplot(PRICE~ROOMS, data=houses, main="ROOMS",cex=0.25)
+
+
+plot(~AYB+PRICE, data=houses, main="AYB", cex=0.25)
+plot(~EYB+PRICE, data=houses, main="EYB", cex=0.25)
+boxplot(PRICE~STORIES, data=houses, main="STORIES", cex=0.25)
+boxplot(PRICE~STYLE, data=houses, main="STYLE", cex=0.25)
+plot(~SALEDATE+PRICE,data=houses, main="SALEDATE", cex=0.25)
+plot(~GBA+PRICE, data=houses, main="GBA", cex=0.25)
+
+
+#check correlation of the factors that appear intuitively correlated when #thinking about the variates that affect pricing in the real-world
+#The reason we go about checking this is to get rid of interaction 
+#if any among the variates. This will be more important when 
+#building the model.
+
+boxplot(PRICE~STYLE, data=houses, main="STYLE", cex=0.25)
+boxplot(PRICE~GRADE, data=houses, main=" GRADE", cex=0.25)
+boxplot(PRICE~ROOF, data=houses, main="ROOF", cex=0.25)
+boxplot(PRICE~EXTWALL,data=houses, main="EXTWALL", cex=0.25)
+boxplot(PRICE~INTWALL,data=houses, main="CNTDN", cex=0.25)
+boxplot(PRICE~KITCHENS, data=houses, main="KITCHENS", cex=0.25)
+boxplot(PRICE~FIREPLACES, data=houses, main="FIREPLACES", cex=0.25)
+
+plot(~PRICE + LANDAREA,data=houses, main="LANDAREA", cex=0.25)
+plot(~PRICE + ZIPCODE, data=houses,main="ZIPCODE",  cex=0.25)
+plot(~PRICE + LATITUDE, data=houses, main="LATITUDE", cex=0.25)
+plot(~PRICE + LONGITUDE, data=houses, main="LONGITUDE", cex=0.25)
+boxplot(PRICE~ASSESSMENT_NBHD, data=houses, main="NBHD", cex=0.25)
+boxplot (PRICE~WARD, data=houses, main="WARD", cex=0.25 )
+
+
+```
+
