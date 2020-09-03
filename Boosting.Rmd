@@ -1,0 +1,268 @@
+---
+title: "Boosting Project"
+author: "Monica Iyer"
+output: 
+    pdf_document:
+        keep_tex: true
+---
+
+* UW ID: 20650298
+* Kaggle public score: 0.20
+* Kaggle private score: 0.196 
+
+**Summary**
+
+By using the Boosting model, I have gone over three main portions. We first impute the different training and test sets (numeric_train_split and imp_prof_data) and perform a random split in our training set to form a train set (80% of the data) and a test set (20% of the data). This means that all NA values found in both test and training datasets have been replaced with values by imputation. 
+
+Following this, I tried to pre-process the variates in the training set. I calculated the skewness of numeric variates and tried to perform a BoxCox transformation on the numeric variates with skewness > 0.7. This had a significant effect on the RMSLE on the local test set (RMSLE = 0.172), however a very small difference in the public Kaggle score. Hence I chose not to folllow this.I concluded from this that I overfitted my model and the prediction did not work well with an external dataset. However, I have included brief R code describing the process I used.
+
+I decided to go with the *gbm* model in this case. At first, I did try *xgboost* but had trouble with hyperparameter tuning since I was more familiar with *gbm* tuning parameters. I chose to create a hyperparametric model tuning grid with sets of parameter value ranges that I chose. It takes around 30 minutes to run the *gbm* model fit and search hence I have only included the code chunk for demonstration purposes. 
+
+Following this, I found ideal parameters that I could use and then include those tuning parameters in a number of different fits and chose the best fit I found - *gbm.fit8* . 
+
+**Pre-processing**
+
+My pre-processing steps were the same as in my Smoothing and Random Forests model. I used multiple imputation with the *mice* package. It is important to note that I imputed my training and test sets (imp_train_split and imp_test_split) separately to ensure that the imputed variates in the test set were independent of any influence from the train set. 
+
+**Missing data**
+
+Data missing in dtrain - 
+AYB, YR_RMDL, STORIES, QUADRANT, ASSESSMENT_SUBNBHD - *mice* imputation with `m=2, maxit=20, method = cart, seed=500`
+
+Data missing in dtest - 
+AYB, YR_RMDL, STORIES, KITCHENS, QUADRANT, ASSESSMENT_SUBNBHD - *mice* imputation with `m=5, maxit=50, method = cart, seed=500`
+
+#Transformation
+* PRICE: log transformation of the response variate
+* SALEDATE: Extract year
+
+**Transformations that were tested - BoxCox transformations of the following variables
+TO-DO
+
+
+**Model Building**
+
+Main boosting boosting package used: `gbm`
+
+I selected the tuning parameters for the Boosting among the combinations of the following parameter values:
+
+* shrinkage = .01 to .3 , step forward = 0.05
+* interaction.depth = 1 to 5, step forward = 1
+* n.minobsinnode = 5 to 15 , step forward = 3
+* bag.fraction = 0.65 to 1 , step forward = 0.15
+* n.trees = 2000 to 6000, step forward = 1000
+* distribution = gaussian
+* train.fraction = 0.75
+* optimal_trees and min_RMSE represent a dump for error and square root error is recorded with different hyperparameter values
+
+\newpage
+
+**1. Preprocessing**
+
+**1.1 Loading data, pre-processing and main model building**
+```{r, echo=TRUE}
+
+  library(stats)
+  library(gbm)
+  library(xgboost)
+  library(mice)
+  library(Metrics)
+  library(caret)
+  set.seed(20654321)
+  
+BoostingModel <- function(dtrain, dtest){
+    
+    #load('house.RData')
+    raw_train_cat <- dtrain[, c("BATHRM", "HF_BATHRM", "HEAT", "AC", "BEDRM", "ROOMS", "STORIES", "STYLE", "GRADE", "CNDTN", "EXTWALL", "ROOF", "INTWALL", "KITCHENS", "FIREPLACES", "ZIPCODE", "WARD", "QUADRANT", "ASSESSMENT_NBHD", "ASSESSMENT_SUBNBHD")]
+    raw_train_cont <- dtrain[, !names(dtrain) %in% names(raw_train_cat)]
+    raw_train_cont$SALEDATE = substr(dtrain$SALEDATE,1,4)
+    
+    numeric_train_cat = apply(raw_train_cat, 2, function(x) as.numeric(as.factor(x)))
+    numeric_train_cont <- apply(raw_train_cont,2,function(x) as.numeric(x))
+    
+    numeric_train_cont_df <- as.data.frame(numeric_train_cont)
+    numeric_train_cat_df <- as.data.frame(numeric_train_cat)
+    numeric_train_df <- cbind(numeric_train_cont_df, numeric_train_cat_df)
+    
+    trainIndex <- sample(1:nrow(numeric_train_df), size = round(0.8*nrow(numeric_train_df)), replace=FALSE)
+    numeric_train_split <- numeric_train_df[trainIndex,]
+    numeric_test_split <- numeric_train_df[-trainIndex,]
+    
+    imp_train_split <- mice(numeric_train_split, m=2, maxit=20, method='cart', seed=500)
+    imp_train_split <- complete(imp_train_split,2)
+    
+    test_split_prices <- numeric_test_split$PRICE
+    numeric_test_split <- numeric_test_split[, !(names(numeric_test_split) %in% c("PRICE"))]
+    imp_test_split <- mice(numeric_test_split, m=2, maxit=20, method='cart', seed=500)
+    imp_test_split <- complete(imp_test_split,2)
+    
+    
+    #professors data
+    
+    prof_test_cat <- dtest[, c("BATHRM", "HF_BATHRM", "HEAT", "AC", "BEDRM", "ROOMS", "STORIES", "STYLE", "GRADE", "CNDTN", "EXTWALL", "ROOF", "INTWALL", "KITCHENS", "FIREPLACES", "ZIPCODE", "WARD", "QUADRANT", "ASSESSMENT_NBHD", "ASSESSMENT_SUBNBHD")]
+    prof_test_cont <- dtest[, !names(dtest) %in% names(prof_test_cat)]
+    prof_test_cont$SALEDATE <- substr(prof_test_cont$SALEDATE,1,4)
+    
+    numeric_prof_cat <- apply(prof_test_cat, 2, function(x) as.numeric(as.factor(x)))
+    numeric_prof_cont <- apply(prof_test_cont, 2, function(x) as.numeric(x))
+    numeric_prof_cont <- as.data.frame(numeric_prof_cont)
+    numeric_prof_cat <- as.data.frame(numeric_prof_cat)
+    numeric_prof_test <- cbind(numeric_prof_cont, numeric_prof_cat)
+    
+    imp_prof_data <- mice(numeric_prof_test, m=2, maxit=20, method='cart', seed=500)
+    imp_prof_data <- complete(imp_prof_data, 2)
+    
+    
+    gbm.fit8 <- gbm(
+        formula = log(PRICE) ~ .,
+        distribution = "gaussian",
+        data = imp_train_split,
+        n.trees = 5000,
+        interaction.depth = 5,
+        shrinkage = 0.01,
+        n.minobsinnode = 15,
+        bag.fraction =0.65,
+        train.fraction = .75,
+        n.cores = NULL, # will use all cores by default
+        verbose = FALSE
+    ) 
+    
+  
+    submit_pred <- predict(gbm.fit8, newdata=imp_prof_data)
+    res <- data.frame(Id=dtest$Id, PRICE=exp(submit_pred))
+    write.csv(res, file="solution_sample.csv", row.names=FALSE)
+    return(res)
+    
+	
+### Your code ends here
+} # end BoostingModel
+```
+
+**1.2 BoxCox transformation of variates - Trial**
+
+```{r, eval = FALSE} 
+
+    #Trial for BoxCox transformation of numeric variates with skewness > 0.7 
+
+    library(moments)
+    library(MASS)
+    
+    combi <- rbind(imp_train_split, imp_test_split)
+    feature_classes <- sapply(names(combi), function(x) {
+        class(combi[[x]])
+    })
+    
+    numeric_feats <- names(feature_classes[feature_classes != "character"])
+    
+    skewed_feats <- sapply(numeric_feats, function(x) {
+        skewness(combi[[x]], na.rm = TRUE)
+    })
+    
+    ## Keep only features that exceed a threshold (0.75) for skewness
+    skewed_feats <- skewed_feats[abs(skewed_feats) > 0.75]
+    
+    ## Transform skewed features with boxcox transformation
+    for (x in names(skewed_feats)) {
+        bc = BoxCoxTrans(combi[[x]], lambda = 0.15)
+        combi[[x]] = predict(bc, combi[[x]])}
+    
+  
+    #for the professor's test data
+    feature_classes_2 <- sapply(names(prof_test_data), function(x) {
+        class(prof_test_data[[x]])
+    })
+    numeric_feats_2 <- names(feature_classes_2[feature_classes_2 != "character"])
+    
+    skewed_feats_2 <- sapply(numeric_feats_2, function(x) {
+        skewness(prof_test_data[[x]], na.rm = TRUE)
+    })
+    
+    ## Keep only features that exceed a threshold (0.75) for skewness
+    skewed_feats_2 <- skewed_feats_2[abs(skewed_feats_2) > 0.75]
+    
+    ## Transform skewed features with boxcox transformation
+    for (x in names(skewed_feats_2)) {
+        bc = BoxCoxTrans(prof_test_data[[x]], lambda = 0.15)
+        prof_test_data[[x]] = predict(bc, prof_test_data[[x]])}
+    
+    
+    #training and testing of combi
+    combi_train <- combi[1:8002,]
+    #remove price from combi_train
+    combi_train_noprice <- combi_train[,!names(combi_train) %in% drop]
+    combi_test <- combi[8003:10002,]
+    combi_test_noprice <- combi_test[,!names(combi_test) %in% drop]
+    
+    #testing for xgboosting - kaggle xgboost
+    #removing variates related to the target variable -  keep price
+    train_price_labels <- log(imp_train_split[,"PRICE"])
+    drop <- c["PRICE"]
+    imp_train_split_noprice <- imp_train_split[,!names(imp_train_split) %in% drop]
+    
+    test_price_labels <- test_split_prices
+    train_data <- as.matrix(imp_train_split_noprice)
+    test_data <- as.matrix(imp_test_split)
+    prof_test_data <- imp_prof_data[, !(names(imp_prof_data)) %in% c("Id")]
+    prof_test_data$TotalSF <- prof_test_data$GBA + prof_test_data$LANDAREA
+    #determine skew for numeric features
+    
+    boost_fit <- xgboost(data = train_data, nfold=5, label = as.matrix(train_price_labels), nrounds = 2200, verbose = FALSE, objective = "reg:linear",      eval_metric = "rmse", nthread = 8, eta = 0.01, gamma = 0.0468, max_depth = 6, min_child_weight = 1.7817, subsample = 0.5213, colsample_bytree = 0.4603)
+    
+    boost_fit2 <- xgboost(data = as.matrix(combi_train_noprice), nfold=5, label = as.matrix(train_price_labels), nrounds = 2200, verbose = FALSE, objective = "reg:linear", eval_metric = "rmse", nthread = 8, eta = 0.01, gamma = 0.0468, max_depth = 6, min_child_weight = 1.7817, subsample = 0.5213, colsample_bytree = 0.4603)
+    
+    ```
+
+**2. Model Building**
+
+**2.1 Model Building - hyperparametric grid search and model tuning**
+```{r, eval=FALSE}
+ #hyperparamteric model tuning
+    
+    hyper_grid <- expand.grid(
+        shrinkage = c(.01, .1, .3),
+        interaction.depth = c(1, 3, 5),
+        n.minobsinnode = c(5, 10, 15),
+        bag.fraction = c(.65, .8, 1), 
+        optimal_trees = 0,               # a place to dump results
+        min_RMSE = 0                     # a place to dump results
+    )
+
+
+    random_index <- sample(1:nrow(imp_train_split), nrow(imp_train_split))
+    random_imp_train <- imp_train_split[random_index, ]
+    
+    # grid search 
+    for(i in 1:nrow(hyper_grid)) {
+        
+        # reproducibility
+        set.seed(123)
+        
+        # train model
+        gbm.tune <- gbm(
+            formula = PRICE ~ .,
+            distribution = "gaussian",
+            data = random_imp_train,
+            n.trees = 5000,
+            interaction.depth = hyper_grid$interaction.depth[i],
+            shrinkage = hyper_grid$shrinkage[i],
+            n.minobsinnode = hyper_grid$n.minobsinnode[i],
+            bag.fraction = hyper_grid$bag.fraction[i],
+            train.fraction = .75,
+            n.cores = NULL, # will use all cores by default
+            verbose = FALSE
+        )
+        
+        # add min training error and trees to grid
+        hyper_grid$optimal_trees[i] <- which.min(gbm.tune$valid.error)
+        hyper_grid$min_RMSE[i] <- sqrt(min(gbm.tune$valid.error))
+    }
+```
+
+
+**Conclusion **
+
+We have been able to conclude here that when using boosting, whether it is the *gbm* or *xgboost* function, parameter tuning is very important to improve prediction power. The advantage is that after building a model with appropriate tuning parameters, one can find the variables important to that model using *varImp* - a plot can also be made of the variables in the order of importance to only keep the most important ones if desired. 
+    
+
+
+    
