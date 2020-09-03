@@ -1,14 +1,14 @@
 ---
 title: "Boosting Project"
-author: "Monica Iyer"
+author: "Jane Doe"
 output: 
     pdf_document:
         keep_tex: true
 ---
 
-* UW ID: 20650298
+* UW ID: 20634567
 * Kaggle public score: 0.20
-* Kaggle private score: 0.196 
+* Kaggle private score: 0.192
 
 **Summary**
 
